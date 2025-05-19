@@ -389,7 +389,7 @@ if uploaded_file is not None and not st.session_state.updated:
 
     # جدول المطابقة 100% (كل عضو مع نشاط واحد)
     st.subheader("📋 جدول المطابقة 100% (كل عضو مع نشاط واحد)")
-    st.dataframe(membership_matched_codes_file)
+    st.dataframe(membership_matched_codes_df)
 
     # تحميل الملفات
     st.subheader("📥 تحميل الملفات")
