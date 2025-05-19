@@ -211,11 +211,10 @@ if uploaded_file is not None and not st.session_state.updated:
         st.error(f"⚠️ الملف لا يحتوي على الأعمدة التالية: {', '.join(missing_columns)}")
         st.stop()
 
-   # تطبيق المطابقة
-   # حساب عدد الأنشطة لكل عضو
+    # حساب عدد الأنشطة لكل عضو
     member_activity_counts = descriptions_df.groupby("رقم العضوية").size().to_dict()
 
-# تطبيق المطابقة الجزئية بناء على عدد الأنشطة لكل عضو
+    # تطبيق المطابقة الجزئية بناء على عدد الأنشطة لكل عضو
     match_results = descriptions_df.apply(
     lambda row: smart_match(
         row[descriptions_col],
@@ -240,7 +239,7 @@ if uploaded_file is not None and not st.session_state.updated:
             f"≥80% (التطابق الجزئي: {row['اقتراح']})" if row["سبب عدم المطابقة"].startswith("تشابه جزئي") else "0%"
         ), axis=1
     )
-        # دمج الاقتراحات تلقائيًا
+    # دمج الاقتراحات تلقائيًا
     descriptions_df_updated = descriptions_df.copy()
     suggested_matches = []
     for idx, row in descriptions_df_updated.iterrows():
@@ -273,9 +272,9 @@ if uploaded_file is not None and not st.session_state.updated:
     exact_matches_df = descriptions_df[descriptions_df["المطابقة بنسبة"] == "100%"][
         ["رقم العضوية", descriptions_col, "Matched Codes", "matched_count"]
     ]
-
-    # تحويل Matched Codes إلى نصوص مع الحفاظ على الأصفار البادئة
-    exact_matches_df["Matched Codes"] = exact_matches_df["Matched Codes"].astype(str).str.split(",").apply(lambda x: ",".join([str(code).strip().zfill(6) for code in x]))
+    exact_matches_df["Matched Codes"] = exact_matches_df["Matched Codes"].astype(str).str.split(",").apply(
+        lambda x: ",".join([str(code).strip().zfill(6) for code in x])
+    )
     exact_matches_file = "exact_matches.xlsx"
     exact_matches_df.to_excel(exact_matches_file, index=False)
 
@@ -285,7 +284,7 @@ if uploaded_file is not None and not st.session_state.updated:
     if not suggested_matches_df.empty:
         suggested_matches_df.to_excel(suggested_matches_file, index=False)
 
-    # إنتاج ملف الأوصاف غير المطابقة
+     # إنتاج ملف الأوصاف غير المطابقة
     unmatched_columns = ["رقم العضوية", descriptions_col, "سبب عدم المطابقة", "اقتراح"]
     unmatched_descriptions_df = descriptions_df[descriptions_df["Matched?"] == "❌"][unmatched_columns]
     unmatched_descriptions_file = "unmatched_descriptions.xlsx"
@@ -300,13 +299,13 @@ if uploaded_file is not None and not st.session_state.updated:
     final_results_file = "final_results.xlsx"
     final_results_df.to_excel(final_results_file, index=False)
 
-    # إنتاج ملف membership_matched_codes.xlsx
+    # إنتاج ملف membership_matched_codes.xlsx (100% فقط)
     membership_matched_codes = []
     for _, row in exact_matches_df.iterrows():
         membership_number = row["رقم العضوية"]
         matched_codes = str(row["Matched Codes"]).split(",") if row["Matched Codes"] else []
         for code in matched_codes:
-            code = str(code).strip().zfill(6)  # التأكد من أن الكود م співпра: كون من 6 أرقام
+            code = str(code).strip().zfill(6)
             membership_matched_codes.append({
                 "Membership Number": membership_number,
                 "Matched Code": code
@@ -314,9 +313,10 @@ if uploaded_file is not None and not st.session_state.updated:
 
     membership_matched_codes_df = pd.DataFrame(membership_matched_codes)
     membership_matched_codes_file = "membership_matched_codes.xlsx"
-    membership_matched_codes_df.to_excel(membership_matched_codes_file, index=False)
+    if not membership_matched_codes_df.empty:
+        membership_matched_codes_df.to_excel(membership_matched_codes_file, index=False)
 
-   # إحصائيات الأعضاء
+    # إحصائيات الأعضاء
     member_stats = generate_statistics(descriptions_df)
 
     # إحصائيات المطابقة
@@ -327,6 +327,16 @@ if uploaded_file is not None and not st.session_state.updated:
     matched_100_pct = (matched_100 / total) * 100 if total > 0 else 0
     matched_80_pct = (matched_80 / total) * 100 if total > 0 else 0
     merged_pct = ((matched_100 + matched_80) / total) * 100 if total > 0 else 0
+
+    # التحقق من صحة النسب
+    if matched_100_pct + matched_80_pct + (unmatched / total * 100) > 100.01:  # السماح بتفاوت طفيف بسبب التقريب
+        st.warning("⚠️ مجموع النسب يتجاوز 100%! يتم إعادة الحساب.")
+        total_pct = matched_100_pct + matched_80_pct + (unmatched / total * 100)
+        matched_100_pct = (matched_100_pct / total_pct) * 100
+        matched_80_pct = (matched_80_pct / total_pct) * 100
+        unmatched_pct = ((unmatched / total * 100) / total_pct) * 100
+    else:
+        unmatched_pct = (unmatched / total) * 100 if total > 0 else 0
 
     # إحصائيات مفصلة
     total_members = descriptions_df["رقم العضوية"].nunique()
@@ -339,7 +349,7 @@ if uploaded_file is not None and not st.session_state.updated:
     st.write(f"✅ المطابقة 100%: {matched_100} ({matched_100_pct:.2f}%)")
     st.write(f"✅ المطابقة ≥80%: {matched_80} ({matched_80_pct:.2f}%)")
     st.write(f"✅ إجمالي الدمج (100% + ≥80%): {(matched_100 + matched_80)} ({merged_pct:.2f}%)")
-    st.write(f"❌ غير مطابق: {unmatched} ({(unmatched / total * 100):.2f}%)")
+    st.write(f"❌ غير مطابق: {unmatched} ({unmatched_pct:.2f}%)")
 
     st.subheader("📊 إحصائيات مفصلة")
     st.write(f"👥 عدد الأعضاء: {total_members}")
@@ -359,7 +369,7 @@ if uploaded_file is not None and not st.session_state.updated:
     if not suggested_matches_df.empty:
         st.dataframe(suggested_matches_df)
     else:
-        st.write("⚠️ لا توجد مطابقات بنسبة ≥80%.")
+        st.warning("⚠️ لا توجد مطابقات بنسبة ≥80% في الجدول، رغم وجود {matched_80} مطابقة في الإحصائيات. تحقق من البيانات.")
 
     st.subheader("📋 جدول الأوصاف غير المطابقة")
     if not unmatched_descriptions_df.empty:
@@ -377,7 +387,7 @@ if uploaded_file is not None and not st.session_state.updated:
         (suggested_matches_file, "تحميل ملف المطابقة الجزئية ≥80% (suggested_matches_80.xlsx)"),
         (unmatched_descriptions_file, "تحميل ملف الأوصاف غير المطابقة (unmatched_descriptions.xlsx)"),
         (final_results_file, "تحميل ملف النتائج النهائية (final_results.xlsx)"),
-        (membership_matched_codes_file, "تحميل ملف أكواد الأعضاء المطابقة (membership_matched_codes.xlsx)")
+        (membership_matched_codes_file, "تحميل ملف أكواد الأعضاء المطابقة 100% (membership_matched_codes.xlsx)")
     ]:
         if os.path.exists(file_name):
             with open(file_name, "rb") as file:
@@ -387,6 +397,8 @@ if uploaded_file is not None and not st.session_state.updated:
                     file_name=file_name,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+        else:
+            st.warning(f"⚠️ الملف {file_name} لم يتم إنشاؤه. تحقق من البيانات.")
 
     st.success("✅ تمت معالجة البيانات وحفظ جميع الملفات!")
     st.session_state.updated = True
