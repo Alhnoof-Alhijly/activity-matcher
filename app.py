@@ -197,6 +197,7 @@ if 'updated' not in st.session_state:
     st.session_state.updated = False
 
 # رفع ملف الأوصاف
+st.info("📄 يجب أن يحتوي الملف على الأعمدة التالية بالتحديد: 'رقم العضوية' و 'النشاط الرئيسي'.")
 uploaded_file = st.file_uploader("اختر ملف الأوصاف", type=["xlsx"])
 if uploaded_file is not None and not st.session_state.updated:
     # قراءة ملف الأوصاف
