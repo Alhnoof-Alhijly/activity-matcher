@@ -212,7 +212,18 @@ if uploaded_file is not None and not st.session_state.updated:
         st.stop()
 
    # تطبيق المطابقة
-    match_results = descriptions_df[descriptions_col].apply(lambda x: smart_match(x, activity_set, activity_dict))
+   # حساب عدد الأنشطة لكل عضو
+    member_activity_counts = descriptions_df.groupby("رقم العضوية").size().to_dict()
+
+# تطبيق المطابقة الجزئية بناء على عدد الأنشطة لكل عضو
+    match_results = descriptions_df.apply(
+    lambda row: smart_match(
+        row[descriptions_col],
+        activity_set,
+        activity_dict,
+        top_n=member_activity_counts.get(row["رقم العضوية"], 1)
+    ), axis=1
+    )
     descriptions_df["Matched Codes"] = match_results.apply(lambda x: x[0])
     descriptions_df["سبب عدم المطابقة"] = match_results.apply(lambda x: x[1])
     descriptions_df["اقتراح"] = match_results.apply(lambda x: x[2])
