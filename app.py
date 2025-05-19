@@ -170,7 +170,7 @@ from utils import prepare_activity_dict
 
 # إعداد واجهة Streamlit
 st.title("مطابقة الأنشطة مع دليل التصنيف")
-st.write("قم برفع ملف الأنشطة لمعالجة البيانات وإنتاج ملفات النتائج.")
+st.write("قم برفع ملف الأنشطة لمعالجة البيانات  .")
 
 # قراءة ملف النشاطات الثابت
 activities_file = "activities.xlsx"
@@ -240,15 +240,65 @@ if uploaded_file is not None and not st.session_state.updated:
             f"≥80% (التطابق الجزئي: {row['اقتراح']})" if row["سبب عدم المطابقة"].startswith("تشابه جزئي") else "0%"
         ), axis=1
     )
+        # دمج الاقتراحات تلقائيًا
+    descriptions_df_updated = descriptions_df.copy()
+    suggested_matches = []
+    for idx, row in descriptions_df_updated.iterrows():
+        if row["Matched?"] == "❌" and row.get("اقتراح", ""):
+            suggestions = row.get("اقتراح", "").split("; ") if row.get("اقتراح", "") else []
+            if suggestions:
+                codes = []
+                for suggestion in suggestions:
+                    suggestion_text = suggestion.split(" (تشابه:")[0]
+                    norm_suggestion = normalize(suggestion_text)
+                    if norm_suggestion in activity_dict:
+                        codes.append(str(activity_dict[norm_suggestion]))
+                if codes:
+                    descriptions_df_updated.loc[idx, "Matched Codes"] = ", ".join(codes)
+                    descriptions_df_updated.loc[idx, "سبب عدم المطابقة"] = "تمت المطابقة بناءً على الاقتراحات (تشابه ≥80%)"
+                    descriptions_df_updated.loc[idx, "Matched?"] = "✔️"
+                    descriptions_df_updated.loc[idx, "matched_count"] = len(codes)
+                    descriptions_df_updated.loc[idx, "مجموع الأنشطة الفعلية"] = len(codes)
+                    descriptions_df_updated.loc[idx, "المطابقة بنسبة"] = f"≥80% (التطابق الجزئي: {row['اقتراح']})"
+                    suggested_matches.append({
+                        "رقم العضوية": row["رقم العضوية"],
+                        descriptions_col: row[descriptions_col],
+                        "Matched Codes": ", ".join(codes),
+                        "تشابه": "≥80%"
+                    })
+
+    descriptions_df = descriptions_df_updated
 
     # إنتاج ملف المطابقة الكاملة (100%)
     exact_matches_df = descriptions_df[descriptions_df["المطابقة بنسبة"] == "100%"][
         ["رقم العضوية", descriptions_col, "Matched Codes", "matched_count"]
     ]
+
     # تحويل Matched Codes إلى نصوص مع الحفاظ على الأصفار البادئة
     exact_matches_df["Matched Codes"] = exact_matches_df["Matched Codes"].astype(str).str.split(",").apply(lambda x: ",".join([str(code).strip().zfill(6) for code in x]))
     exact_matches_file = "exact_matches.xlsx"
     exact_matches_df.to_excel(exact_matches_file, index=False)
+
+    # إنتاج ملف المطابقة الجزئية (≥80%)
+    suggested_matches_df = pd.DataFrame(suggested_matches)
+    suggested_matches_file = "suggested_matches_80.xlsx"
+    if not suggested_matches_df.empty:
+        suggested_matches_df.to_excel(suggested_matches_file, index=False)
+
+    # إنتاج ملف الأوصاف غير المطابقة
+    unmatched_columns = ["رقم العضوية", descriptions_col, "سبب عدم المطابقة", "اقتراح"]
+    unmatched_descriptions_df = descriptions_df[descriptions_df["Matched?"] == "❌"][unmatched_columns]
+    unmatched_descriptions_file = "unmatched_descriptions.xlsx"
+    if not unmatched_descriptions_df.empty:
+        unmatched_descriptions_df.to_excel(unmatched_descriptions_file, index=False)
+
+    # إنتاج ملف النتائج النهائية (100% + ≥80%)
+    final_results_df = descriptions_df[descriptions_df["Matched?"] == "✔️"][
+        ["رقم العضوية", descriptions_col, "Matched Codes", "المطابقة بنسبة", "matched_count"]
+    ]
+    final_results_df = final_results_df.rename(columns={"matched_count": "عدد الأنشطة المطابقة"})
+    final_results_file = "final_results.xlsx"
+    final_results_df.to_excel(final_results_file, index=False)
 
     # إنتاج ملف membership_matched_codes.xlsx
     membership_matched_codes = []
@@ -266,137 +316,81 @@ if uploaded_file is not None and not st.session_state.updated:
     membership_matched_codes_file = "membership_matched_codes.xlsx"
     membership_matched_codes_df.to_excel(membership_matched_codes_file, index=False)
 
-    # إعداد الأوصاف غير المطابقة
-    unmatched_columns = ["رقم العضوية", descriptions_col, "سبب عدم المطابقة"]
-    if "اقتراح" in descriptions_df.columns and descriptions_df["اقتراح"].notna().any():
-        unmatched_columns.append("اقتراح")
-    unmatched_df = descriptions_df[descriptions_df["Matched?"] == "❌"][unmatched_columns]
-    st.session_state.unmatched_df = unmatched_df.copy()
-
-    # إحصائيات المطابقة الأولية
-    total = len(descriptions_df)
-    matched = (descriptions_df["Matched?"] == "✔️").sum()
-    unmatched = (descriptions_df["Matched?"] == "❌").sum()
-    matched_pct = (matched / total) * 100 if total > 0 else 0
-    unmatched_pct = (unmatched / total) * 100 if total > 0 else 0
-
-    # إحصائيات الأعضاء
+   # إحصائيات الأعضاء
     member_stats = generate_statistics(descriptions_df)
 
-    # عرض النتائج الأولية
-    st.subheader("📊 إحصائيات الأعضاء الأولية")
+    # إحصائيات المطابقة
+    total = len(descriptions_df)
+    matched_100 = len(descriptions_df[descriptions_df["المطابقة بنسبة"] == "100%"])
+    matched_80 = len(descriptions_df[descriptions_df["المطابقة بنسبة"].str.startswith("≥80%")])
+    unmatched = len(descriptions_df[descriptions_df["Matched?"] == "❌"])
+    matched_100_pct = (matched_100 / total) * 100 if total > 0 else 0
+    matched_80_pct = (matched_80 / total) * 100 if total > 0 else 0
+    merged_pct = ((matched_100 + matched_80) / total) * 100 if total > 0 else 0
+
+    # إحصائيات مفصلة
+    total_members = descriptions_df["رقم العضوية"].nunique()
+    total_activities = descriptions_df["matched_count"].sum()
+    avg_activities_per_member = total_activities / total_members if total_members > 0 else 0
+
+    # عرض النتائج
+    st.subheader("📊 إحصائيات المطابقة")
+    st.write(f"📊 إجمالي الأوصاف: {total}")
+    st.write(f"✅ المطابقة 100%: {matched_100} ({matched_100_pct:.2f}%)")
+    st.write(f"✅ المطابقة ≥80%: {matched_80} ({matched_80_pct:.2f}%)")
+    st.write(f"✅ إجمالي الدمج (100% + ≥80%): {(matched_100 + matched_80)} ({merged_pct:.2f}%)")
+    st.write(f"❌ غير مطابق: {unmatched} ({(unmatched / total * 100):.2f}%)")
+
+    st.subheader("📊 إحصائيات مفصلة")
+    st.write(f"👥 عدد الأعضاء: {total_members}")
+    st.write(f"🎯 إجمالي الأنشطة المطابقة: {total_activities}")
+    st.write(f"📈 متوسط الأنشطة لكل عضو: {avg_activities_per_member:.2f}")
+
+    st.subheader("📋 جدول جميع الأعضاء مع أنشطتهم")
     st.dataframe(member_stats)
 
-    st.subheader("📊 نتائج المطابقة الأولية (أول 20 سجل)")
-    st.dataframe(descriptions_df.head(20))
-
-    st.subheader("📋 الأوصاف غير المطابقة")
-    if not unmatched_df.empty:
-        st.dataframe(unmatched_df)
-        st.write(f"ℹ️ يمكن مطابقة بعض الأوصاف غير المطابقة بنسبة تشابه ≥80% باستخدام الاقتراحات.")
-        apply_suggestions = st.radio("هل تريد تطبيق الاقتراحات للأوصاف غير المطابقة؟", ("نعم", "لا"))
-        if apply_suggestions == "نعم":
-            descriptions_df_updated = descriptions_df.copy()
-            suggested_matches = []
-            for idx, row in unmatched_df.iterrows():
-                suggestions = row.get("اقتراح", "").split("; ") if row.get("اقتراح", "") else []
-                if suggestions:
-                    codes = []
-                    for suggestion in suggestions:
-                        suggestion_text = suggestion.split(" (تشابه:")[0]
-                        norm_suggestion = normalize(suggestion_text)
-                        if norm_suggestion in activity_dict:
-                            codes.append(str(activity_dict[norm_suggestion]))
-                    if codes:
-                        descriptions_df_updated.loc[idx, "Matched Codes"] = ", ".join(codes)
-                        descriptions_df_updated.loc[idx, "سبب عدم المطابقة"] = "تمت المطابقة بناءً على الاقتراحات (تشابه ≥80%)"
-                        descriptions_df_updated.loc[idx, "Matched?"] = "✔️"
-                        descriptions_df_updated.loc[idx, "matched_count"] = len(codes)
-                        descriptions_df_updated.loc[idx, "مجموع الأنشطة الفعلية"] = len(codes)
-                        descriptions_df_updated.loc[idx, "المطابقة بنسبة"] = f"≥80% (التطابق الجزئي: {row['اقتراح']})"
-                        suggested_matches.append({
-                            "رقم العضوية": row["رقم العضوية"],
-                            descriptions_col: row[descriptions_col],
-                            "Matched Codes": ", ".join(codes),
-                            "تشابه": "≥80%"
-                        })
-
-            # إنتاج ملف المطابقة الجزئية (≥80%)
-            suggested_matches_df = pd.DataFrame(suggested_matches)
-            suggested_matches_file = "suggested_matches_80.xlsx"
-            if not suggested_matches_df.empty:
-                suggested_matches_df.to_excel(suggested_matches_file, index=False)
-
-            # تحديث الإحصائيات
-            descriptions_df = descriptions_df_updated
-            total = len(descriptions_df)
-            matched = (descriptions_df["Matched?"] == "✔️").sum()
-            unmatched = (descriptions_df["Matched?"] == "❌").sum()
-            matched_pct = (matched / total) * 100 if total > 0 else 0
-            unmatched_pct = (unmatched / total) * 100 if total > 0 else 0
-
-            # إحصائيات الأعضاء
-            member_stats = generate_statistics(descriptions_df)
-
-            # إنتاج ملف النتائج النهائية (100% + 80%)
-            final_results_df = descriptions_df[descriptions_df["Matched?"] == "✔️"][
-                ["رقم العضوية", descriptions_col, "Matched Codes", "المطابقة بنسبة", "matched_count"]
-            ]
-            final_results_df = final_results_df.rename(columns={"matched_count": "عدد الأنشطة المطابقة"})
-            final_results_file = "final_results.xlsx"
-            final_results_df.to_excel(final_results_file, index=False)
-
-            # إنتاج ملف الأوصاف التي لم تُطابق نهائيًا
-            unmatched_descriptions_df = descriptions_df[descriptions_df["Matched?"] == "❌"][unmatched_columns]
-            unmatched_descriptions_file = "unmatched_descriptions.xlsx"
-            if not unmatched_descriptions_df.empty:
-                unmatched_descriptions_df.to_excel(unmatched_descriptions_file, index=False)
-
-            # عرض الإحصائيات النهائية
-            st.subheader("📊 إحصائيات الأعضاء النهائية")
-            st.dataframe(member_stats)
-
-            st.subheader("📊 نتائج المطابقة النهائية (أول 20 سجل)")
-            st.dataframe(final_results_df.head(20))
-
-            st.subheader("📋 الأوصاف التي لم تُطابق نهائيًا")
-            if not unmatched_descriptions_df.empty:
-                st.dataframe(unmatched_descriptions_df)
-            else:
-                st.success("🎉 جميع الأوصاف تمت مطابقتها بنسبة 100% أو ≥80%!")
-
-            st.write(f"📊 إجمالي الأوصاف: {total}")
-            st.write(f"✅ تم مطابقة: {matched} ({matched_pct:.2f}%)")
-            st.write(f"❌ لم يتم مطابقة: {unmatched} ({unmatched_pct:.2f}%)")
-
-            # تحميل الملفات
-            for file_name, label in [
-                (exact_matches_file, "📥 تحميل ملف المطابقة الكاملة (exact_matches.xlsx)"),
-                (suggested_matches_file, "📥 تحميل ملف المطابقة الجزئية ≥80% (suggested_matches_80.xlsx)"),
-                (final_results_file, "📥 تحميل ملف النتائج النهائية (final_results.xlsx)"),
-                (unmatched_descriptions_file, "📥 تحميل ملف الأوصاف غير المطابقة (unmatched_descriptions.xlsx)")
-            ]:
-                if os.path.exists(file_name):
-                    with open(file_name, "rb") as file:
-                        st.download_button(
-                            label=label,
-                            data=file,
-                            file_name=file_name,
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
-
-            st.success("✅ تم تحديث النتائج وحفظ جميع الملفات!")
-            st.session_state.updated = True
-            st.session_state.descriptions_df = descriptions_df
+    st.subheader("📋 جدول المطابقة 100%")
+    if not exact_matches_df.empty:
+        st.dataframe(exact_matches_df)
     else:
-        st.success("🎉 جميع الأوصاف تمت مطابقتها بنسبة 100%!")
-        with open(exact_matches_file, "rb") as file:
-            st.download_button(
-                label="📥 تحميل ملف المطابقة الكاملة (exact_matches.xlsx)",
-                data=file,
-                file_name=exact_matches_file,
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+        st.write("⚠️ لا توجد مطابقات بنسبة 100%.")
+
+    st.subheader("📋 جدول المطابقة ≥80%")
+    if not suggested_matches_df.empty:
+        st.dataframe(suggested_matches_df)
+    else:
+        st.write("⚠️ لا توجد مطابقات بنسبة ≥80%.")
+
+    st.subheader("📋 جدول الأوصاف غير المطابقة")
+    if not unmatched_descriptions_df.empty:
+        st.dataframe(unmatched_descriptions_df)
+    else:
+        st.success("🎉 جميع الأوصاف تمت مطابقتها بنسبة 100% أو ≥80%!")
+
+    st.subheader("📋 جدول النتائج النهائية (أول 20 سجل)")
+    st.dataframe(final_results_df.head(20))
+
+    # تحميل الملفات
+    st.subheader("📥 تحميل الملفات")
+    for file_name, label in [
+        (exact_matches_file, "تحميل ملف المطابقة الكاملة (exact_matches.xlsx)"),
+        (suggested_matches_file, "تحميل ملف المطابقة الجزئية ≥80% (suggested_matches_80.xlsx)"),
+        (unmatched_descriptions_file, "تحميل ملف الأوصاف غير المطابقة (unmatched_descriptions.xlsx)"),
+        (final_results_file, "تحميل ملف النتائج النهائية (final_results.xlsx)"),
+        (membership_matched_codes_file, "تحميل ملف أكواد الأعضاء المطابقة (membership_matched_codes.xlsx)")
+    ]:
+        if os.path.exists(file_name):
+            with open(file_name, "rb") as file:
+                st.download_button(
+                    label=label,
+                    data=file,
+                    file_name=file_name,
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+
+    st.success("✅ تمت معالجة البيانات وحفظ جميع الملفات!")
+    st.session_state.updated = True
+    st.session_state.descriptions_df = descriptions_df
 
 elif st.session_state.updated:
     st.info("✅ تم تحديث النتائج. يمكنك رفع ملف جديد لإعادة البدء.")
