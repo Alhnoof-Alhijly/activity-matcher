@@ -160,17 +160,14 @@
 
 import streamlit as st
 import pandas as pd
-import re
 import os
-from fuzzywuzzy import fuzz
-import unicodedata
 from matching import normalize, smart_match
 from stats import generate_statistics
 from utils import prepare_activity_dict
 
 # إعداد واجهة Streamlit
 st.title("مطابقة الأنشطة مع دليل التصنيف")
-st.write("قم برفع ملف الأنشطة لمعالجة البيانات  .")
+st.write("قم برفع ملف الأنشطة لمعالجة البيانات وإنتاج ملفات النتائج.")
 
 # قراءة ملف النشاطات الثابت
 activities_file = "activities.xlsx"
@@ -214,14 +211,14 @@ if uploaded_file is not None and not st.session_state.updated:
     # حساب عدد الأنشطة لكل عضو
     member_activity_counts = descriptions_df.groupby("رقم العضوية").size().to_dict()
 
-    # تطبيق المطابقة الجزئية بناء على عدد الأنشطة لكل عضو
+    # تطبيق المطابقة
     match_results = descriptions_df.apply(
-    lambda row: smart_match(
-        row[descriptions_col],
-        activity_set,
-        activity_dict,
-        top_n=member_activity_counts.get(row["رقم العضوية"], 1)
-    ), axis=1
+        lambda row: smart_match(
+            row[descriptions_col],
+            activity_set,
+            activity_dict,
+            top_n=member_activity_counts.get(row["رقم العضوية"], 1)
+        ), axis=1
     )
     descriptions_df["Matched Codes"] = match_results.apply(lambda x: x[0])
     descriptions_df["سبب عدم المطابقة"] = match_results.apply(lambda x: x[1])
@@ -239,6 +236,7 @@ if uploaded_file is not None and not st.session_state.updated:
             f"≥80% (التطابق الجزئي: {row['اقتراح']})" if row["سبب عدم المطابقة"].startswith("تشابه جزئي") else "0%"
         ), axis=1
     )
+
     # دمج الاقتراحات تلقائيًا
     descriptions_df_updated = descriptions_df.copy()
     suggested_matches = []
@@ -284,7 +282,7 @@ if uploaded_file is not None and not st.session_state.updated:
     if not suggested_matches_df.empty:
         suggested_matches_df.to_excel(suggested_matches_file, index=False)
 
-     # إنتاج ملف الأوصاف غير المطابقة
+    # إنتاج ملف الأوصاف غير المطابقة
     unmatched_columns = ["رقم العضوية", descriptions_col, "سبب عدم المطابقة", "اقتراح"]
     unmatched_descriptions_df = descriptions_df[descriptions_df["Matched?"] == "❌"][unmatched_columns]
     unmatched_descriptions_file = "unmatched_descriptions.xlsx"
@@ -345,7 +343,6 @@ if uploaded_file is not None and not st.session_state.updated:
 
     # عرض النتائج
     st.subheader("📊 إحصائيات المطابقة")
-    st.write(f"📊 إجمالي الأوصاف: {total}")
     st.write(f"✅ المطابقة 100%: {matched_100} ({matched_100_pct:.2f}%)")
     st.write(f"✅ المطابقة ≥80%: {matched_80} ({matched_80_pct:.2f}%)")
     st.write(f"✅ إجمالي الدمج (100% + ≥80%): {(matched_100 + matched_80)} ({merged_pct:.2f}%)")
@@ -369,7 +366,17 @@ if uploaded_file is not None and not st.session_state.updated:
     if not suggested_matches_df.empty:
         st.dataframe(suggested_matches_df)
     else:
-        st.warning("⚠️ لا توجد مطابقات بنسبة ≥80% في الجدول، رغم وجود {matched_80} مطابقة في الإحصائيات. تحقق من البيانات.")
+        # تصفية بديلة لعرض المطابقات ≥80% من descriptions_df
+        temp_80_df = descriptions_df[descriptions_df["المطابقة بنسبة"].str.startswith("≥80%")][
+            ["رقم العضوية", descriptions_col, "Matched Codes", "اقتراح"]
+        ]
+        if not temp_80_df.empty:
+            st.write("ℹ️ عرض المطابقات ≥80% من البيانات الرئيسية بسبب مشكلة في جدول الاقتراحات:")
+            st.dataframe(temp_80_df)
+            # حفظ المطابقات ≥80% في ملف
+            temp_80_df.to_excel(suggested_matches_file, index=False)
+        else:
+            st.warning(f"⚠️ لا توجد مطابقات بنسبة ≥80% في الجدول، رغم وجود {matched_80} مطابقة في الإحصائيات. تحقق من عمود 'اقتراح'.")
 
     st.subheader("📋 جدول الأوصاف غير المطابقة")
     if not unmatched_descriptions_df.empty:
@@ -377,8 +384,12 @@ if uploaded_file is not None and not st.session_state.updated:
     else:
         st.success("🎉 جميع الأوصاف تمت مطابقتها بنسبة 100% أو ≥80%!")
 
-    st.subheader("📋 جدول النتائج النهائية (أول 20 سجل)")
-    st.dataframe(final_results_df.head(20))
+    st.subheader("📋 جدول النتائج النهائية ")
+    st.dataframe(final_results_df)
+
+    # جدول المطابقة 100% (كل عضو مع نشاط واحد)
+    st.subheader("📋 جدول المطابقة 100% (كل عضو مع نشاط واحد)")
+    st.dataframe(membership_matched_codes_file)
 
     # تحميل الملفات
     st.subheader("📥 تحميل الملفات")
