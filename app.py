@@ -346,7 +346,7 @@ elif analysis_option == "إدخال نص نشاط واحد":
         if not recommendations_df.empty:
             st.write("إذا كنت تمارس هذا النشاط، هذه هي الأنشطة التي قد تكون مرتبطة به:")
             # st.markdown(summary)
-            # st.dataframe(recommendations_df)
+            st.dataframe(recommendations_df)
             with open(single_activity_file, "rb") as file:
                 st.download_button(
                     label="تحميل ملف تحليل النشاط (single_activity_analysis.xlsx)",
