@@ -3,3 +3,4 @@ pandas
 fuzzywuzzy
 openpyxl
 python-Levenshtein
+mlxtend
