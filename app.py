@@ -193,8 +193,7 @@ if analysis_option == "رفع ملف الأوصاف":
         recommendations_df, summary = generate_activity_recommendations(descriptions_df, activity_dict, min_support=0.01, min_confidence=0.5)
         recommendations_file = "activity_recommendations.xlsx"
         if not recommendations_df.empty:
-            recommendations_file = "activity_recommendations.csv"
-            recommendations_df.to_csv(recommendations_file, index=False)
+            recommendations_df.to_excel(recommendations_file, index=False)
 
         # عرض النتائج
         st.subheader("📊 إحصائيات المطابقة")
